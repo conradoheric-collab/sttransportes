@@ -33,6 +33,10 @@
           <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
         </nav>
         <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+        <form method="POST" action="{{ url_for('logout') }}" class="manager-logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="manager-logout-button">Sair</button>
+        </form>
       </aside>
 
       <main class="driver-main manager-main">
@@ -81,6 +85,7 @@
                       <div class="manager-actions">
                         <button type="button" class="table-action edit-action" data-edit-route data-route-id="{{ route.id }}" data-destino="{{ route.destino }}" data-rate="{{ route.valor_por_tonelada }}">Editar</button>
                         <form method="POST" action="{{ url_for('excluir_rota', route_id=route.id) }}" onsubmit="return confirm('Excluir esta rota?');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                           <button type="submit" class="table-action delete-action">Excluir</button>
                         </form>
                       </div>
@@ -107,6 +112,7 @@
           <button type="button" class="close-route-modal close-modal" aria-label="Fechar">×</button>
         </div>
         <form method="POST" action="{{ url_for('nova_rota') }}" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="field">
             <label for="new_route_destination">Destino / rota</label>
             <input id="new_route_destination" name="destino" type="text" placeholder="Ex: Curitiba - São Paulo" required />
@@ -133,6 +139,7 @@
           <button type="button" class="close-route-modal close-modal" aria-label="Fechar">×</button>
         </div>
         <form id="edit-route-form" method="POST" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="field">
             <label for="edit_route_destination">Destino / rota</label>
             <input id="edit_route_destination" name="destino" required />

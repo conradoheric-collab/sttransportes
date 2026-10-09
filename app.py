@@ -1,17 +1,31 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from functools import wraps
+from json import JSONDecodeError, dumps, load
 from os import environ
 from pathlib import Path
 from secrets import token_hex
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import Uuid
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = environ.get("FLASK_SECRET_KEY") or token_hex(32)
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=environ.get("SESSION_COOKIE_SECURE", "false").casefold() == "true",
+)
+csrf = CSRFProtect(app)
 database_url = environ.get("DATABASE_URL", "sqlite:///st-transportes.db")
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
@@ -53,6 +67,7 @@ class TripRecord(db.Model):
     __tablename__ = "trips"
 
     id = db.Column(db.Integer, primary_key=True)
+    motorista_user_id = db.Column(Uuid(as_uuid=False), nullable=True, index=True)
     rota_id = db.Column(db.Integer, db.ForeignKey("routes.id", ondelete="RESTRICT"), nullable=False)
     destino = db.Column(db.String(180), nullable=False)
     toneladas = db.Column(db.Numeric(12, 2), nullable=False)
@@ -90,6 +105,17 @@ class TripRecord(db.Model):
         }
 
 
+class UserProfile(db.Model):
+    __tablename__ = "user_profiles"
+    __table_args__ = (
+        db.CheckConstraint("role IN ('gestor', 'motorista')", name="ck_user_profiles_role"),
+    )
+
+    user_id = db.Column(Uuid(as_uuid=False), primary_key=True)
+    email = db.Column(db.String(320), nullable=False, unique=True)
+    role = db.Column(db.String(20), nullable=False)
+
+
 def now_datetime_local():
     return datetime.now().strftime("%Y-%m-%dT%H:%M")
 
@@ -105,8 +131,12 @@ def format_brl(value):
     return f"R$ {whole.replace(',', '.')},{cents}"
 
 
-def get_active_trip():
-    return TripRecord.query.filter_by(status="em_andamento").order_by(TripRecord.id.desc()).first()
+def get_active_trip(motorista_user_id):
+    return (
+        TripRecord.query.filter_by(status="em_andamento", motorista_user_id=motorista_user_id)
+        .order_by(TripRecord.id.desc())
+        .first()
+    )
 
 
 def find_trip(trip_id):
@@ -117,8 +147,66 @@ def find_route(route_id):
     return db.session.get(RouteRecord, route_id)
 
 
+def authenticate_supabase_user(email, password):
+    supabase_url = environ.get("SUPABASE_URL", "").rstrip("/")
+    anon_key = environ.get("SUPABASE_ANON_KEY", "")
+    if not supabase_url or not anon_key:
+        raise RuntimeError("A autenticação Supabase ainda não foi configurada.")
+
+    payload = dumps({"email": email, "password": password}).encode("utf-8")
+    auth_request = Request(
+        f"{supabase_url}/auth/v1/token?grant_type=password",
+        data=payload,
+        headers={"apikey": anon_key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(auth_request, timeout=12) as response:
+            auth_result = load(response)
+    except HTTPError as error:
+        if error.code in {400, 401, 403}:
+            return None
+        raise ConnectionError("O serviço de autenticação está indisponível.") from None
+    except (URLError, TimeoutError, JSONDecodeError):
+        raise ConnectionError("O serviço de autenticação está indisponível.") from None
+
+    user = auth_result.get("user")
+    if not user or not user.get("id") or not user.get("email"):
+        return None
+    return user
+
+
+def require_role(*allowed_roles):
+    def decorate(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            user_id = session.get("user_id")
+            role = session.get("role")
+            if not user_id or role not in {"gestor", "motorista"}:
+                session.clear()
+                flash("Entre com sua conta para continuar.", "error")
+                return redirect(url_for("login"))
+            if allowed_roles and role not in allowed_roles:
+                flash("Seu perfil não tem acesso a essa área.", "error")
+                destination = "gestor" if role == "gestor" else "motorista_viagens"
+                return redirect(url_for(destination))
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorate
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(_error):
+    flash("O formulário expirou. Tente novamente.", "error")
+    return redirect(url_for("login"))
+
+
 @app.route("/")
 def login():
+    if session.get("user_id"):
+        return redirect(url_for("gestor" if session.get("role") == "gestor" else "motorista_viagens"))
     return render_template("login.html")
 
 
@@ -126,31 +214,63 @@ def login():
 def do_login():
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "").strip()
-    perfil = request.form.get("perfil", "motorista").strip()
 
     if not email or not password:
         flash("Informe seu e-mail e senha para continuar.", "error")
         return redirect(url_for("login"))
-    if perfil not in {"motorista", "gestor"}:
-        flash("Selecione um perfil válido para continuar.", "error")
+
+    try:
+        auth_user = authenticate_supabase_user(email, password)
+    except RuntimeError as error:
+        flash(str(error), "error")
+        return redirect(url_for("login"))
+    except ConnectionError:
+        flash("Não foi possível conectar ao serviço de login. Tente novamente.", "error")
         return redirect(url_for("login"))
 
+    if auth_user is None:
+        flash("E-mail ou senha inválidos.", "error")
+        return redirect(url_for("login"))
+
+    profile = db.session.get(UserProfile, auth_user["id"])
+    if profile is None or profile.email.casefold() != auth_user["email"].casefold():
+        flash("Sua conta ainda não tem um perfil liberado. Procure o Gestor.", "error")
+        return redirect(url_for("login"))
+
+    session.clear()
+    session.permanent = True
+    session["user_id"] = auth_user["id"]
+    session["email"] = auth_user["email"]
+    session["role"] = profile.role
     flash("Login realizado com sucesso!", "success")
-    return redirect(url_for("gestor" if perfil == "gestor" else "motorista"))
+    return redirect(url_for("gestor" if profile.role == "gestor" else "motorista_viagens"))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("Sessão encerrada.", "success")
+    return redirect(url_for("login"))
 
 
 @app.route("/motorista")
+@require_role("motorista")
 def motorista():
     return redirect(url_for("motorista_viagens"))
 
 
 @app.route("/motorista/viagens")
+@require_role("motorista")
 def motorista_viagens():
+    user_id = session["user_id"]
     return render_template(
         "motorista.html",
-        trips=[trip.as_dict() for trip in TripRecord.query.order_by(TripRecord.id).all()],
+        trips=[
+            trip.as_dict()
+            for trip in TripRecord.query.filter_by(motorista_user_id=user_id).order_by(TripRecord.id).all()
+        ],
         routes=[route.as_dict() for route in RouteRecord.query.order_by(RouteRecord.id).all()],
-        active_trip=get_active_trip(),
+        active_trip=get_active_trip(user_id),
         now_value=now_datetime_local(),
         format_datetime=format_datetime,
         format_brl=format_brl,
@@ -159,6 +279,7 @@ def motorista_viagens():
 
 
 @app.route("/motorista/nova", methods=["POST"])
+@require_role("motorista")
 def nova_viagem():
     route_id = request.form.get("rota_id", "").strip()
     toneladas_value = request.form.get("toneladas", "").strip()
@@ -188,6 +309,7 @@ def nova_viagem():
     valor_frete = (route.valor_por_tonelada * toneladas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     trip = TripRecord(
+        motorista_user_id=session["user_id"],
         rota_id=route.id,
         destino=route.destino,
         toneladas=toneladas,
@@ -205,10 +327,11 @@ def nova_viagem():
 
 
 @app.route("/motorista/finalizar/<int:trip_id>", methods=["POST"])
+@require_role("motorista")
 def finalizar_viagem(trip_id):
     trip = find_trip(trip_id)
 
-    if trip is None:
+    if trip is None or trip.motorista_user_id != session["user_id"]:
         flash("Viagem não encontrada.", "error")
         return redirect(url_for("motorista_viagens"))
 
@@ -252,11 +375,13 @@ def finalizar_viagem(trip_id):
 
 
 @app.route("/dashboard")
+@require_role("gestor")
 def dashboard():
     return redirect(url_for("gestor"))
 
 
 @app.route("/gestor")
+@require_role("gestor")
 def gestor():
     trip_records = TripRecord.query.order_by(TripRecord.id.desc()).all()
     trips = [trip.as_dict() for trip in trip_records]
@@ -278,6 +403,7 @@ def gestor():
 
 
 @app.route("/gestor/abastecimento")
+@require_role("gestor")
 def gestor_abastecimento():
     trip_records = TripRecord.query.filter_by(status="finalizada").order_by(TripRecord.data_final.desc()).all()
     fuel_entries = [
@@ -321,6 +447,7 @@ def gestor_abastecimento():
 
 
 @app.route("/gestor/viagens/<int:trip_id>/editar", methods=["POST"])
+@require_role("gestor")
 def editar_viagem(trip_id):
     trip = find_trip(trip_id)
     if trip is None:
@@ -398,6 +525,7 @@ def editar_viagem(trip_id):
 
 
 @app.route("/gestor/viagens/<int:trip_id>/excluir", methods=["POST"])
+@require_role("gestor")
 def excluir_viagem(trip_id):
     trip = find_trip(trip_id)
     if trip is None:
@@ -411,6 +539,7 @@ def excluir_viagem(trip_id):
 
 
 @app.route("/gestor/rotas")
+@require_role("gestor")
 def gestor_rotas():
     route_records = RouteRecord.query.order_by(RouteRecord.id).all()
     return render_template(
@@ -425,6 +554,7 @@ def gestor_rotas():
 
 
 @app.route("/gestor/rotas/nova", methods=["POST"])
+@require_role("gestor")
 def nova_rota():
     destino = request.form.get("destino", "").strip()
     valor_value = request.form.get("valor_por_tonelada", "").strip()
@@ -453,6 +583,7 @@ def nova_rota():
 
 
 @app.route("/gestor/rotas/<int:route_id>/editar", methods=["POST"])
+@require_role("gestor")
 def editar_rota(route_id):
     route = find_route(route_id)
     if route is None:
@@ -489,6 +620,7 @@ def editar_rota(route_id):
 
 
 @app.route("/gestor/rotas/<int:route_id>/excluir", methods=["POST"])
+@require_role("gestor")
 def excluir_rota(route_id):
     route = find_route(route_id)
     if route is None:
@@ -507,6 +639,24 @@ def excluir_rota(route_id):
 Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 with app.app_context():
     db.create_all()
+    with db.engine.begin() as connection:
+        if db.engine.dialect.name == "postgresql":
+            for table_name in ("routes", "trips", "user_profiles"):
+                connection.exec_driver_sql(
+                    f"ALTER TABLE public.{table_name} ENABLE ROW LEVEL SECURITY"
+                )
+                connection.exec_driver_sql(
+                    f"REVOKE ALL ON TABLE public.{table_name} FROM anon, authenticated"
+                )
+        if db.engine.dialect.name == "sqlite":
+            trip_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(trips)")}
+            if "motorista_user_id" not in trip_columns:
+                connection.exec_driver_sql("ALTER TABLE trips ADD COLUMN motorista_user_id CHAR(32)")
+        else:
+            connection.exec_driver_sql("ALTER TABLE trips ADD COLUMN IF NOT EXISTS motorista_user_id UUID")
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_trips_motorista_user_id ON trips (motorista_user_id)"
+        )
 
 
 if __name__ == "__main__":

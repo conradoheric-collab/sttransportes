@@ -20,6 +20,10 @@
         <nav class="driver-nav">
           <a href="{{ url_for('motorista_viagens') }}" class="{% if view == 'viagens' %}active{% endif %}">Viagens</a>
         </nav>
+        <form method="POST" action="{{ url_for('logout') }}" class="driver-logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="driver-logout-button">Sair</button>
+        </form>
       </aside>
 
       <main class="driver-main">
@@ -84,6 +88,7 @@
         </div>
 
         <form method="POST" action="{{ url_for('nova_viagem') }}" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="form-grid">
             <div class="field">
               <label for="modal_data_inicial">Data e hora</label>
@@ -127,6 +132,7 @@
         <p id="finish-trip-summary" class="modal-summary">Destino e KM inicial</p>
 
         <form id="finish-trip-form" method="POST" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="form-grid">
             <div class="field">
               <label for="modal_data_final">Data e hora final</label>

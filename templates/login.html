@@ -34,25 +34,14 @@
         {% endwith %}
 
         <form method="POST" action="{{ url_for('do_login') }}" class="login-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <label for="email">E-mail</label>
           <input id="email" name="email" type="email" placeholder="seuemail@sttransportes.com.br" required />
 
           <label for="password">Senha</label>
           <input id="password" name="password" type="password" placeholder="Digite sua senha" required />
 
-          <label for="perfil">Perfil de acesso</label>
-          <select id="perfil" name="perfil" required>
-            <option value="motorista">Motorista</option>
-            <option value="gestor">Gestor</option>
-          </select>
-
-          <div class="form-row">
-            <label class="remember-me">
-              <input type="checkbox" />
-              Lembrar-me
-            </label>
-            <a href="#">Esqueci minha senha</a>
-          </div>
+          <p class="login-access-note">O perfil é definido pelo Gestor.</p>
 
           <button type="submit">Acessar painel</button>
         </form>

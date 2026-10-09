@@ -34,6 +34,10 @@
           <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
         </nav>
         <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+        <form method="POST" action="{{ url_for('logout') }}" class="manager-logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="manager-logout-button">Sair</button>
+        </form>
       </aside>
 
       <main class="driver-main manager-main">
@@ -164,6 +168,7 @@
                           data-litros="{{ trip.litros if trip.litros is not none else '' }}"
                           data-preco-litro="{{ trip.preco_litro if trip.preco_litro is not none else '' }}">Editar</button>
                         <form method="POST" action="{{ url_for('excluir_viagem', trip_id=trip.id) }}" onsubmit="return confirm('Excluir esta viagem? Esta ação não pode ser desfeita.');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
                           <button type="submit" class="table-action delete-action">Excluir</button>
                         </form>
                       </div>
@@ -191,6 +196,7 @@
           <button type="button" class="close-modal" aria-label="Fechar">×</button>
         </div>
         <form id="edit-trip-form" method="POST" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
           <div class="form-grid">
             <div class="field">
               <label for="edit_rota">Destino / rota</label>
