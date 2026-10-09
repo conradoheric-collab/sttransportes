@@ -1,15 +1,93 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from os import environ
+from pathlib import Path
 from secrets import token_hex
 
+from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
+from flask_sqlalchemy import SQLAlchemy
+
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = environ.get("FLASK_SECRET_KEY") or token_hex(32)
+database_url = environ.get("DATABASE_URL", "sqlite:///st-transportes.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
 
-trips = []
-routes = []
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+if database_url.startswith("postgresql+"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "connect_args": {"sslmode": "require"},
+    }
+else:
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+    }
+
+db = SQLAlchemy(app)
+
+
+class RouteRecord(db.Model):
+    __tablename__ = "routes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    destino = db.Column(db.String(180), nullable=False, unique=True)
+    valor_por_tonelada = db.Column(db.Numeric(12, 2), nullable=False)
+
+    def as_dict(self):
+        return {
+            "id": self.id,
+            "destino": self.destino,
+            "valor_por_tonelada": self.valor_por_tonelada,
+        }
+
+
+class TripRecord(db.Model):
+    __tablename__ = "trips"
+
+    id = db.Column(db.Integer, primary_key=True)
+    rota_id = db.Column(db.Integer, db.ForeignKey("routes.id", ondelete="RESTRICT"), nullable=False)
+    destino = db.Column(db.String(180), nullable=False)
+    toneladas = db.Column(db.Numeric(12, 2), nullable=False)
+    valor_por_tonelada = db.Column(db.Numeric(12, 2), nullable=False)
+    valor_frete = db.Column(db.Numeric(12, 2), nullable=False)
+    km_inicial = db.Column(db.Float, nullable=False)
+    data_inicio = db.Column(db.DateTime, nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    veiculo = db.Column(db.String(100), nullable=False)
+    km_final = db.Column(db.Float)
+    data_final = db.Column(db.DateTime)
+    litros = db.Column(db.Numeric(12, 2))
+    preco_litro = db.Column(db.Numeric(12, 2))
+    valor_abastecimento = db.Column(db.Numeric(12, 2))
+    km_por_litro = db.Column(db.Float)
+
+    def as_dict(self):
+        return {
+            "id": self.id,
+            "rota_id": self.rota_id,
+            "destino": self.destino,
+            "toneladas": self.toneladas,
+            "valor_por_tonelada": self.valor_por_tonelada,
+            "valor_frete": self.valor_frete,
+            "km_inicial": self.km_inicial,
+            "data_inicio": self.data_inicio,
+            "status": self.status,
+            "veiculo": self.veiculo,
+            "km_final": self.km_final,
+            "data_final": self.data_final,
+            "litros": self.litros,
+            "preco_litro": self.preco_litro,
+            "valor_abastecimento": self.valor_abastecimento,
+            "km_por_litro": self.km_por_litro,
+        }
 
 
 def now_datetime_local():
@@ -28,15 +106,15 @@ def format_brl(value):
 
 
 def get_active_trip():
-    return next((trip for trip in reversed(trips) if trip["status"] == "em_andamento"), None)
+    return TripRecord.query.filter_by(status="em_andamento").order_by(TripRecord.id.desc()).first()
 
 
 def find_trip(trip_id):
-    return next((trip for trip in trips if trip["id"] == trip_id), None)
+    return db.session.get(TripRecord, trip_id)
 
 
 def find_route(route_id):
-    return next((route for route in routes if route["id"] == route_id), None)
+    return db.session.get(RouteRecord, route_id)
 
 
 @app.route("/")
@@ -70,8 +148,8 @@ def motorista():
 def motorista_viagens():
     return render_template(
         "motorista.html",
-        trips=trips,
-        routes=routes,
+        trips=[trip.as_dict() for trip in TripRecord.query.order_by(TripRecord.id).all()],
+        routes=[route.as_dict() for route in RouteRecord.query.order_by(RouteRecord.id).all()],
         active_trip=get_active_trip(),
         now_value=now_datetime_local(),
         format_datetime=format_datetime,
@@ -107,34 +185,28 @@ def nova_viagem():
         flash("A tonelagem deve ser maior que zero e o KM não pode ser negativo.", "error")
         return redirect(url_for("motorista_viagens"))
 
-    valor_frete = (route["valor_por_tonelada"] * toneladas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    valor_frete = (route.valor_por_tonelada * toneladas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    trip = {
-        "id": max((item["id"] for item in trips), default=0) + 1,
-        "rota_id": route["id"],
-        "destino": route["destino"],
-        "toneladas": toneladas,
-        "valor_por_tonelada": route["valor_por_tonelada"],
-        "valor_frete": valor_frete,
-        "km_inicial": km_inicial_value,
-        "data_inicio": data_inicio,
-        "status": "em_andamento",
-        "veiculo": "Veículo 12",
-        "km_final": None,
-        "data_final": None,
-        "litros": None,
-        "preco_litro": None,
-        "valor_abastecimento": None,
-        "km_por_litro": None,
-    }
-    trips.append(trip)
+    trip = TripRecord(
+        rota_id=route.id,
+        destino=route.destino,
+        toneladas=toneladas,
+        valor_por_tonelada=route.valor_por_tonelada,
+        valor_frete=valor_frete,
+        km_inicial=km_inicial_value,
+        data_inicio=data_inicio,
+        status="em_andamento",
+        veiculo="Veículo 12",
+    )
+    db.session.add(trip)
+    db.session.commit()
     flash("Viagem aberta com sucesso!", "success")
     return redirect(url_for("motorista_viagens"))
 
 
 @app.route("/motorista/finalizar/<int:trip_id>", methods=["POST"])
 def finalizar_viagem(trip_id):
-    trip = next((item for item in trips if item["id"] == trip_id), None)
+    trip = find_trip(trip_id)
 
     if trip is None:
         flash("Viagem não encontrada.", "error")
@@ -159,20 +231,21 @@ def finalizar_viagem(trip_id):
     if (
         not liters_value.is_finite()
         or not price_per_liter.is_finite()
-        or km_final_value < trip["km_inicial"]
+        or km_final_value < trip.km_inicial
         or liters_value <= 0
         or price_per_liter <= 0
     ):
         flash("O KM final deve ser maior que o inicial e os valores do abastecimento devem ser positivos.", "error")
         return redirect(url_for("motorista_viagens"))
 
-    trip["km_final"] = km_final_value
-    trip["data_final"] = datetime.now()
-    trip["litros"] = liters_value
-    trip["preco_litro"] = price_per_liter
-    trip["valor_abastecimento"] = (liters_value * price_per_liter).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    trip["km_por_litro"] = (km_final_value - trip["km_inicial"]) / float(liters_value)
-    trip["status"] = "finalizada"
+    trip.km_final = km_final_value
+    trip.data_final = datetime.now()
+    trip.litros = liters_value
+    trip.preco_litro = price_per_liter
+    trip.valor_abastecimento = (liters_value * price_per_liter).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    trip.km_por_litro = (km_final_value - trip.km_inicial) / float(liters_value)
+    trip.status = "finalizada"
+    db.session.commit()
 
     flash("Viagem finalizada com sucesso!", "success")
     return redirect(url_for("motorista_viagens"))
@@ -185,11 +258,14 @@ def dashboard():
 
 @app.route("/gestor")
 def gestor():
+    trip_records = TripRecord.query.order_by(TripRecord.id.desc()).all()
+    trips = [trip.as_dict() for trip in trip_records]
+    route_records = RouteRecord.query.order_by(RouteRecord.id).all()
     completed_trips = [trip for trip in trips if trip["status"] == "finalizada"]
     return render_template(
         "gestor.html",
-        trips=sorted(trips, key=lambda trip: trip["id"], reverse=True),
-        routes=routes,
+        trips=trips,
+        routes=[route.as_dict() for route in route_records],
         total_trips=len(trips),
         active_trips=sum(trip["status"] == "em_andamento" for trip in trips),
         completed_trips=len(completed_trips),
@@ -203,11 +279,11 @@ def gestor():
 
 @app.route("/gestor/abastecimento")
 def gestor_abastecimento():
+    trip_records = TripRecord.query.filter_by(status="finalizada").order_by(TripRecord.data_final.desc()).all()
     fuel_entries = [
-        trip for trip in trips
-        if trip["status"] == "finalizada"
-        and trip.get("litros") is not None
-        and trip.get("valor_abastecimento") is not None
+        trip.as_dict() for trip in trip_records
+        if trip.litros is not None
+        and trip.valor_abastecimento is not None
     ]
     total_fuel = sum(trip["valor_abastecimento"] for trip in fuel_entries)
     total_liters = sum(trip["litros"] for trip in fuel_entries)
@@ -301,23 +377,22 @@ def editar_viagem(trip_id):
     fuel_value = (fuel_liters * fuel_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if status == "finalizada" else None
     km_per_liter = (end_km - start_km) / float(fuel_liters) if status == "finalizada" else None
 
-    trip.update(
-        rota_id=route["id"],
-        destino=route["destino"],
-        toneladas=toneladas,
-        valor_por_tonelada=route["valor_por_tonelada"],
-        valor_frete=(route["valor_por_tonelada"] * toneladas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-        veiculo=veiculo,
-        data_inicio=start_date,
-        km_inicial=start_km,
-        status=status,
-        km_final=end_km,
-        data_final=end_date,
-        litros=fuel_liters,
-        preco_litro=fuel_price,
-        valor_abastecimento=fuel_value,
-        km_por_litro=km_per_liter,
-    )
+    trip.rota_id = route.id
+    trip.destino = route.destino
+    trip.toneladas = toneladas
+    trip.valor_por_tonelada = route.valor_por_tonelada
+    trip.valor_frete = (route.valor_por_tonelada * toneladas).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    trip.veiculo = veiculo
+    trip.data_inicio = start_date
+    trip.km_inicial = start_km
+    trip.status = status
+    trip.km_final = end_km
+    trip.data_final = end_date
+    trip.litros = fuel_liters
+    trip.preco_litro = fuel_price
+    trip.valor_abastecimento = fuel_value
+    trip.km_por_litro = km_per_liter
+    db.session.commit()
     flash("Viagem atualizada com sucesso.", "success")
     return redirect(url_for("gestor"))
 
@@ -329,20 +404,22 @@ def excluir_viagem(trip_id):
         flash("Viagem não encontrada.", "error")
         return redirect(url_for("gestor"))
 
-    trips.remove(trip)
+    db.session.delete(trip)
+    db.session.commit()
     flash("Viagem excluída com sucesso.", "success")
     return redirect(url_for("gestor"))
 
 
 @app.route("/gestor/rotas")
 def gestor_rotas():
+    route_records = RouteRecord.query.order_by(RouteRecord.id).all()
     return render_template(
         "gestor_rotas.html",
-        routes=sorted(routes, key=lambda route: route["id"]),
+        routes=[route.as_dict() for route in route_records],
         format_brl=format_brl,
         trips_by_route={
-            route["id"]: sum(trip.get("rota_id") == route["id"] for trip in trips)
-            for route in routes
+            route.id: TripRecord.query.filter_by(rota_id=route.id).count()
+            for route in route_records
         },
     )
 
@@ -364,15 +441,13 @@ def nova_rota():
     if not valor_por_tonelada.is_finite() or valor_por_tonelada <= 0:
         flash("O frete por tonelada deve ser maior que zero.", "error")
         return redirect(url_for("gestor_rotas"))
-    if any(route["destino"].casefold() == destino.casefold() for route in routes):
+    if any(route.destino.casefold() == destino.casefold() for route in RouteRecord.query.all()):
         flash("Já existe uma rota cadastrada com esse destino.", "error")
         return redirect(url_for("gestor_rotas"))
 
-    routes.append({
-        "id": max((route["id"] for route in routes), default=0) + 1,
-        "destino": destino,
-        "valor_por_tonelada": valor_por_tonelada,
-    })
+    route = RouteRecord(destino=destino, valor_por_tonelada=valor_por_tonelada)
+    db.session.add(route)
+    db.session.commit()
     flash("Rota cadastrada com sucesso.", "success")
     return redirect(url_for("gestor_rotas"))
 
@@ -399,11 +474,16 @@ def editar_rota(route_id):
     if not valor_por_tonelada.is_finite() or valor_por_tonelada <= 0:
         flash("O frete por tonelada deve ser maior que zero.", "error")
         return redirect(url_for("gestor_rotas"))
-    if any(other["id"] != route_id and other["destino"].casefold() == destino.casefold() for other in routes):
+    if any(
+        other.id != route_id and other.destino.casefold() == destino.casefold()
+        for other in RouteRecord.query.all()
+    ):
         flash("Já existe outra rota cadastrada com esse destino.", "error")
         return redirect(url_for("gestor_rotas"))
 
-    route.update(destino=destino, valor_por_tonelada=valor_por_tonelada)
+    route.destino = destino
+    route.valor_por_tonelada = valor_por_tonelada
+    db.session.commit()
     flash("Rota atualizada com sucesso. Fretes já calculados foram mantidos nas viagens existentes.", "success")
     return redirect(url_for("gestor_rotas"))
 
@@ -414,13 +494,19 @@ def excluir_rota(route_id):
     if route is None:
         flash("Rota não encontrada.", "error")
         return redirect(url_for("gestor_rotas"))
-    if any(trip.get("rota_id") == route_id for trip in trips):
+    if TripRecord.query.filter_by(rota_id=route_id).first() is not None:
         flash("Esta rota está vinculada a uma viagem. Exclua ou atualize a viagem antes.", "error")
         return redirect(url_for("gestor_rotas"))
 
-    routes.remove(route)
+    db.session.delete(route)
+    db.session.commit()
     flash("Rota excluída com sucesso.", "success")
     return redirect(url_for("gestor_rotas"))
+
+
+Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+with app.app_context():
+    db.create_all()
 
 
 if __name__ == "__main__":
