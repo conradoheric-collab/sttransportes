@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Abastecimento</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page manager-page">
+    <section class="manager-mobile-message">
+      <div class="driver-badge">ST</div>
+      <p>ST TRANSPORTES · GESTOR</p>
+      <h1>A gestão fica disponível no desktop.</h1>
+      <a href="{{ url_for('motorista_viagens') }}">Abrir área do Motorista</a>
+    </section>
+
+    <div class="driver-shell">
+      <aside class="driver-sidebar manager-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+        <p class="manager-nav-label">GESTÃO</p>
+        <nav class="driver-nav">
+          <a href="{{ url_for('gestor') }}">Visão geral</a>
+          <a href="{{ url_for('gestor_rotas') }}">Rotas</a>
+          <a class="active" href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Peças <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Veículos <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
+        </nav>
+        <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+      </aside>
+
+      <main class="driver-main manager-main">
+        <header class="topbar manager-topbar">
+          <div>
+            <p>Painel administrativo</p>
+            <h1>Abastecimento</h1>
+          </div>
+          <div class="manager-date">ST TRANSPORTES <span>·</span> GESTOR</div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <section class="manager-metrics fuel-metrics" aria-label="Resumo de abastecimento">
+          <article class="manager-metric">
+            <span>Registros</span>
+            <strong>{{ total_entries }}</strong>
+            <small>Viagens abastecidas</small>
+          </article>
+          <article class="manager-metric metric-orange">
+            <span>Valor total</span>
+            <strong>{{ format_brl(total_fuel) }}</strong>
+            <small>Gasto registrado</small>
+          </article>
+          <article class="manager-metric metric-green">
+            <span>Litros totais</span>
+            <strong>{{ '%.2f'|format(total_liters) }} L</strong>
+            <small>Volume abastecido</small>
+          </article>
+          <article class="manager-metric metric-fuel">
+            <span>Preço médio</span>
+            <strong>{{ format_brl(average_price) }}</strong>
+            <small>Por litro</small>
+          </article>
+        </section>
+
+        <section class="manager-trips fuel-records">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">CONTROLE DE CUSTOS</p>
+              <h2>Lançamentos de abastecimento</h2>
+            </div>
+          </div>
+          <div class="manager-table-wrap">
+            <table class="manager-table fuel-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Destino / rota</th>
+                  <th>Veículo</th>
+                  <th>KM final</th>
+                  <th>Consumo</th>
+                  <th>Litros</th>
+                  <th>Preço / litro</th>
+                  <th>Valor total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for trip in fuel_entries %}
+                  <tr>
+                    <td>{{ format_datetime(trip.data_final) }}</td>
+                    <td><strong>{{ trip.destino }}</strong><small>Viagem #{{ trip.id }}</small></td>
+                    <td>{{ trip.veiculo }}</td>
+                    <td>{{ trip.km_final }} km</td>
+                    <td>{{ '%.2f'|format(trip.km_por_litro) }} km/L</td>
+                    <td>{{ '%.2f'|format(trip.litros) }} L</td>
+                    <td>{{ format_brl(trip.preco_litro) }}</td>
+                    <td><strong>{{ format_brl(trip.valor_abastecimento) }}</strong></td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="8">Ainda não há abastecimentos. Os lançamentos aparecem quando o Motorista finaliza uma viagem.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note" id="modulos-pendentes">Os abastecimentos são informados pelo Motorista ao finalizar cada viagem.</p>
+        </section>
+
+        <section class="manager-trips route-efficiency">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">DESEMPENHO</p>
+              <h2>Média por rota</h2>
+            </div>
+          </div>
+          <div class="manager-table-wrap">
+            <table class="manager-table">
+              <thead>
+                <tr>
+                  <th>Rota</th>
+                  <th>Viagens</th>
+                  <th>KM percorridos</th>
+                  <th>Litros</th>
+                  <th>Média</th>
+                  <th>Gasto total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for route in route_averages %}
+                  <tr>
+                    <td><strong>{{ route.destino }}</strong></td>
+                    <td>{{ route.viagens }}</td>
+                    <td>{{ '%.1f'|format(route.km_total) }} km</td>
+                    <td>{{ '%.2f'|format(route.litros) }} L</td>
+                    <td><strong>{{ '%.2f'|format(route.km_por_litro) }} km/L</strong></td>
+                    <td>{{ format_brl(route.valor_total) }}</td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="6">A média por rota aparecerá após a primeira viagem finalizada com abastecimento.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note">A média é calculada pelos quilômetros totais divididos pelos litros totais de cada rota.</p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

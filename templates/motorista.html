@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Motorista</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page">
+    <div class="driver-shell">
+      <aside class="driver-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+
+        <nav class="driver-nav">
+          <a href="{{ url_for('motorista_viagens') }}" class="{% if view == 'viagens' %}active{% endif %}">Viagens</a>
+        </nav>
+      </aside>
+
+      <main class="driver-main">
+        <header class="topbar">
+          <div>
+            <p>Motorista</p>
+            <h1>Viagens</h1>
+          </div>
+          <button class="add-button" type="button" data-open-create="true" {% if not routes %}disabled title="Aguarde o Gestor cadastrar uma rota"{% endif %}>+</button>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% if not routes %}
+          <div class="route-needed">Nenhuma rota disponível. Peça ao Gestor para cadastrar as rotas antes de abrir uma viagem.</div>
+        {% endif %}
+
+        <section class="panel">
+            <div class="panel-header">
+              <h2>Viagens registradas</h2>
+            </div>
+
+            <ul class="trip-list">
+              {% for trip in trips %}
+                <li class="trip-item trip-card" data-trip-id="{{ trip.id }}" data-trip-destino="{{ trip.destino }}" data-trip-km="{{ trip.km_inicial }}">
+                  <div>
+                    <strong>{{ trip.destino }}</strong>
+                    <div class="trip-meta">{{ format_datetime(trip.data_inicio) }} · {{ trip.km_inicial }} km</div>
+                    {% if trip.toneladas is defined %}
+                      <div class="trip-meta">{{ trip.toneladas }} t · Frete: {{ format_brl(trip.valor_frete) }}</div>
+                    {% endif %}
+                    {% if trip.km_por_litro is not none %}
+                      <div class="trip-meta">Consumo: {{ '%.2f'|format(trip.km_por_litro) }} km/L · Abastecimento: {{ format_brl(trip.valor_abastecimento) }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="trip-actions">
+                    <span class="trip-status {% if trip.status == 'finalizada' %}finalizada{% endif %}">{{ 'Em andamento' if trip.status == 'em_andamento' else 'Finalizada' }}</span>
+                    {% if trip.status == 'em_andamento' %}
+                      <button type="button" class="mini-button" data-open-finish="true" data-trip-id="{{ trip.id }}" data-trip-destino="{{ trip.destino }}" data-trip-km="{{ trip.km_inicial }}">Finalizar</button>
+                    {% endif %}
+                  </div>
+                </li>
+              {% else %}
+                <li class="empty-state">Ainda não há viagens registradas.</li>
+              {% endfor %}
+            </ul>
+        </section>
+      </main>
+    </div>
+
+    <div id="create-trip-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Nova viagem</h3>
+          <button type="button" class="close-modal" aria-label="Fechar">×</button>
+        </div>
+
+        <form method="POST" action="{{ url_for('nova_viagem') }}" class="trip-form modal-form">
+          <div class="form-grid">
+            <div class="field">
+              <label for="modal_data_inicial">Data e hora</label>
+              <input id="modal_data_inicial" name="data_inicial" type="datetime-local" value="{{ now_value }}" required />
+            </div>
+            <div class="field">
+              <label for="modal_rota">Destino / rota</label>
+              <select id="modal_rota" name="rota_id" required {% if not routes %}disabled{% endif %}>
+                <option value="">Selecione o destino</option>
+                {% for route in routes %}
+                  <option value="{{ route.id }}" data-rate="{{ route.valor_por_tonelada }}">{{ route.destino }} · {{ format_brl(route.valor_por_tonelada) }}/t</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="modal_toneladas">Toneladas</label>
+              <input id="modal_toneladas" name="toneladas" type="number" step="0.01" min="0.01" placeholder="Ex: 8.5" required />
+            </div>
+            <div class="field">
+              <label for="modal_km_inicial">Km inicial</label>
+              <input id="modal_km_inicial" name="km_inicial" type="number" step="0.1" min="0" placeholder="Ex: 15240" required />
+            </div>
+          </div>
+
+          <div class="freight-preview"><span>Frete estimado</span><strong id="freight-total">R$ 0,00</strong></div>
+          <button type="submit" class="primary" {% if not routes %}disabled{% endif %}>Abrir viagem</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="finish-trip-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="finish-trip-title">Finalizar viagem</h3>
+          <button type="button" class="close-modal" aria-label="Fechar">×</button>
+        </div>
+
+        <p id="finish-trip-summary" class="modal-summary">Destino e KM inicial</p>
+
+        <form id="finish-trip-form" method="POST" class="trip-form modal-form">
+          <div class="form-grid">
+            <div class="field">
+              <label for="modal_data_final">Data e hora final</label>
+              <input id="modal_data_final" name="data_final" type="datetime-local" value="{{ now_value }}" required />
+            </div>
+            <div class="field">
+              <label for="modal_km_final">Km final</label>
+              <input id="modal_km_final" name="km_final" type="number" step="0.1" min="0" placeholder="Ex: 15400" required />
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="modal_litros">Litros abastecidos</label>
+              <input id="modal_litros" name="litros" type="number" step="0.01" min="0.01" placeholder="Ex: 120.5" required />
+            </div>
+            <div class="field">
+              <label for="modal_preco_litro">Preço por litro (R$)</label>
+              <input id="modal_preco_litro" name="preco_litro" type="number" step="0.01" min="0.01" placeholder="Ex: 7.20" required />
+            </div>
+          </div>
+
+          <div class="freight-preview"><span>Total do abastecimento</span><strong id="fuel-total">R$ 0,00</strong></div>
+
+          <button type="submit" class="secondary">Finalizar viagem</button>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const createModal = document.getElementById('create-trip-modal');
+      const finishModal = document.getElementById('finish-trip-modal');
+      const finishForm = document.getElementById('finish-trip-form');
+      const finishSummary = document.getElementById('finish-trip-summary');
+      const fuelLitersInput = document.getElementById('modal_litros');
+      const fuelPriceInput = document.getElementById('modal_preco_litro');
+      const fuelTotal = document.getElementById('fuel-total');
+      const routeSelect = document.getElementById('modal_rota');
+      const tonnageInput = document.getElementById('modal_toneladas');
+      const freightTotal = document.getElementById('freight-total');
+      const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      function updateFreightPreview() {
+        const rate = Number(routeSelect.selectedOptions[0]?.dataset.rate || 0);
+        const tonnage = Number(tonnageInput.value || 0);
+        freightTotal.textContent = currency.format(rate * tonnage);
+      }
+
+      routeSelect.addEventListener('change', updateFreightPreview);
+      tonnageInput.addEventListener('input', updateFreightPreview);
+
+      function updateFuelTotal() {
+        const liters = Number(fuelLitersInput.value || 0);
+        const price = Number(fuelPriceInput.value || 0);
+        fuelTotal.textContent = currency.format(liters * price);
+      }
+
+      fuelLitersInput.addEventListener('input', updateFuelTotal);
+      fuelPriceInput.addEventListener('input', updateFuelTotal);
+
+      document.querySelector('[data-open-create="true"]')?.addEventListener('click', () => {
+        createModal.classList.remove('hidden');
+        createModal.setAttribute('aria-hidden', 'false');
+      });
+
+      document.querySelectorAll('.close-modal').forEach((button) => {
+        button.addEventListener('click', () => {
+          createModal.classList.add('hidden');
+          finishModal.classList.add('hidden');
+          createModal.setAttribute('aria-hidden', 'true');
+          finishModal.setAttribute('aria-hidden', 'true');
+        });
+      });
+
+      function openFinishModal(buttonOrCard) {
+        const tripId = buttonOrCard.dataset.tripId;
+        const tripDestino = buttonOrCard.dataset.tripDestino;
+        const tripKm = buttonOrCard.dataset.tripKm;
+        finishSummary.textContent = `${tripDestino} · KM inicial: ${tripKm} km`;
+        finishForm.action = `/motorista/finalizar/${tripId}`;
+        finishModal.classList.remove('hidden');
+        finishModal.setAttribute('aria-hidden', 'false');
+      }
+
+      document.querySelectorAll('[data-open-finish="true"]').forEach((button) => {
+        button.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openFinishModal(button);
+        });
+      });
+
+      document.querySelectorAll('.trip-card').forEach((card) => {
+        card.addEventListener('click', () => {
+          openFinishModal(card);
+        });
+      });
+    </script>
+  </body>
+</html>

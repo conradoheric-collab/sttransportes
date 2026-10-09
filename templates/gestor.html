@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Gestor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page manager-page">
+    <section class="manager-mobile-message">
+      <div class="driver-badge">ST</div>
+      <p>ST TRANSPORTES · GESTOR</p>
+      <h1>A gestão fica disponível no desktop.</h1>
+      <a href="{{ url_for('motorista_viagens') }}">Abrir área do Motorista</a>
+    </section>
+    <div class="driver-shell">
+      <aside class="driver-sidebar manager-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+
+        <p class="manager-nav-label">GESTÃO</p>
+        <nav class="driver-nav">
+          <a class="active" href="{{ url_for('gestor') }}">Visão geral</a>
+          <a href="{{ url_for('gestor_rotas') }}">Rotas</a>
+          <a href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Peças <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Veículos <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
+        </nav>
+        <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+      </aside>
+
+      <main class="driver-main manager-main">
+        <header class="topbar manager-topbar">
+          <div>
+            <p>Painel administrativo</p>
+            <h1>Visão geral</h1>
+          </div>
+          <div class="manager-date">ST TRANSPORTES <span>·</span> GESTOR</div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <section class="manager-metrics" aria-label="Resumo da operação">
+          <article class="manager-metric">
+            <span>Viagens registradas</span>
+            <strong>{{ total_trips }}</strong>
+            <small>Total cadastrado</small>
+          </article>
+          <article class="manager-metric metric-orange">
+            <span>Em andamento</span>
+            <strong>{{ active_trips }}</strong>
+            <small>Viagens abertas</small>
+          </article>
+          <article class="manager-metric metric-green">
+            <span>Finalizadas</span>
+            <strong>{{ completed_trips }}</strong>
+            <small>Com registro de encerramento</small>
+          </article>
+          <article class="manager-metric metric-fuel">
+            <span>Abastecimento registrado</span>
+            <strong>{{ format_brl(total_fuel) }}</strong>
+            <small>{{ '%.2f'|format(total_liters) }} litros</small>
+          </article>
+          <article class="manager-metric metric-freight">
+            <span>Frete calculado</span>
+            <strong>{{ format_brl(total_freight) }}</strong>
+            <small>Nas viagens registradas</small>
+          </article>
+        </section>
+
+        <section class="manager-trips" id="viagens">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">CONTROLE DA FROTA</p>
+              <h2>Viagens</h2>
+            </div>
+            <div class="trip-controls">
+              <label class="sr-only" for="trip-search">Buscar viagem</label>
+              <input id="trip-search" type="search" placeholder="Buscar destino ou veículo" />
+              <label class="sr-only" for="trip-status-filter">Filtrar por status</label>
+              <select id="trip-status-filter">
+                <option value="todas">Todos os status</option>
+                <option value="em_andamento">Em andamento</option>
+                <option value="finalizada">Finalizadas</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="manager-table-wrap">
+            <table class="manager-table">
+              <thead>
+                <tr>
+                  <th>Viagem</th>
+                  <th>Veículo</th>
+                  <th>Início</th>
+                  <th>Distância</th>
+                  <th>Carga</th>
+                  <th>Frete calculado</th>
+                  <th>Abastecimento</th>
+                  <th>Status</th>
+                  <th><span class="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody id="trip-table-body">
+                {% for trip in trips %}
+                  <tr data-trip-row data-status="{{ trip.status }}" data-search="{{ trip.destino }} {{ trip.veiculo }}">
+                    <td>
+                      <strong>{{ trip.destino }}</strong>
+                      <small>Viagem #{{ trip.id }} · KM inicial {{ trip.km_inicial|int if trip.km_inicial == trip.km_inicial|int else trip.km_inicial }}</small>
+                    </td>
+                    <td>{{ trip.veiculo }}</td>
+                    <td>{{ format_datetime(trip.data_inicio) }}</td>
+                    <td>
+                      {% if trip.km_final is not none %}
+                        {{ '%.1f'|format(trip.km_final - trip.km_inicial) }} km
+                      {% else %}
+                        <span class="muted-value">Em aberto</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ trip.toneladas|default('—') }}{% if trip.toneladas is defined %} t{% endif %}</td>
+                    <td>
+                      {% if trip.valor_frete is defined %}
+                        <strong>{{ format_brl(trip.valor_frete) }}</strong>
+                        <small>{{ format_brl(trip.valor_por_tonelada) }}/t</small>
+                      {% else %}
+                        <span class="muted-value">Sem cálculo</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if trip.valor_abastecimento is not none %}
+                        <strong>{{ format_brl(trip.valor_abastecimento) }}</strong>
+                        <small>{{ '%.2f'|format(trip.litros) }} L · {{ format_brl(trip.preco_litro) }}/L</small>
+                        <small>{{ '%.2f'|format(trip.km_por_litro) }} km/L</small>
+                      {% else %}
+                        <span class="muted-value">Sem registro</span>
+                      {% endif %}
+                    </td>
+                    <td><span class="manager-status {{ trip.status }}">{{ 'Em andamento' if trip.status == 'em_andamento' else 'Finalizada' }}</span></td>
+                    <td>
+                      <div class="manager-actions">
+                        <button type="button" class="table-action edit-action" data-edit-trip
+                          data-trip-id="{{ trip.id }}"
+                          data-rota-id="{{ trip.rota_id|default('') }}"
+                          data-toneladas="{{ trip.toneladas|default('') }}"
+                          data-veiculo="{{ trip.veiculo }}"
+                          data-data-inicial="{{ trip.data_inicio.strftime('%Y-%m-%dT%H:%M') }}"
+                          data-km-inicial="{{ trip.km_inicial }}"
+                          data-status="{{ trip.status }}"
+                          data-km-final="{{ trip.km_final if trip.km_final is not none else '' }}"
+                          data-data-final="{{ trip.data_final.strftime('%Y-%m-%dT%H:%M') if trip.data_final else '' }}"
+                          data-litros="{{ trip.litros if trip.litros is not none else '' }}"
+                          data-preco-litro="{{ trip.preco_litro if trip.preco_litro is not none else '' }}">Editar</button>
+                        <form method="POST" action="{{ url_for('excluir_viagem', trip_id=trip.id) }}" onsubmit="return confirm('Excluir esta viagem? Esta ação não pode ser desfeita.');">
+                          <button type="submit" class="table-action delete-action">Excluir</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="9">Nenhuma viagem registrada até agora.</td></tr>
+                {% endfor %}
+                <tr class="empty-row hidden" id="no-filter-results"><td colspan="9">Nenhuma viagem corresponde a essa busca.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note" id="modulos-pendentes">As áreas de peças, veículos, motoristas e relatórios serão detalhadas nas próximas etapas.</p>
+        </section>
+      </main>
+    </div>
+
+    <div id="edit-trip-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card manager-modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-trip-title">
+        <div class="modal-header">
+          <div>
+            <p class="manager-kicker">CONTROLE DA FROTA</p>
+            <h3 id="edit-trip-title">Editar viagem</h3>
+          </div>
+          <button type="button" class="close-modal" aria-label="Fechar">×</button>
+        </div>
+        <form id="edit-trip-form" method="POST" class="trip-form modal-form">
+          <div class="form-grid">
+            <div class="field">
+              <label for="edit_rota">Destino / rota</label>
+              <select id="edit_rota" name="rota_id" required>
+                {% for route in routes %}
+                  <option value="{{ route.id }}" data-rate="{{ route.valor_por_tonelada }}">{{ route.destino }} · {{ format_brl(route.valor_por_tonelada) }}/t</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="edit_veiculo">Veículo</label>
+              <input id="edit_veiculo" name="veiculo" required />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="edit_data_inicial">Data e hora inicial</label>
+              <input id="edit_data_inicial" name="data_inicial" type="datetime-local" required />
+            </div>
+            <div class="field">
+              <label for="edit_km_inicial">KM inicial</label>
+              <input id="edit_km_inicial" name="km_inicial" type="number" step="0.1" min="0" required />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="edit_status">Status</label>
+              <select id="edit_status" name="status" required>
+                <option value="em_andamento">Em andamento</option>
+                <option value="finalizada">Finalizada</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="edit_data_final">Data e hora final</label>
+              <input id="edit_data_final" name="data_final" type="datetime-local" />
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="edit_toneladas">Toneladas</label>
+              <input id="edit_toneladas" name="toneladas" type="number" step="0.01" min="0.01" required />
+            </div>
+            <div class="field">
+              <label>Frete recalculado</label>
+              <strong id="edit_freight_total" class="edit-freight-total">R$ 0,00</strong>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="edit_km_final">KM final</label>
+              <input id="edit_km_final" name="km_final" type="number" step="0.1" min="0" />
+            </div>
+            <div class="field">
+              <label for="edit_litros">Litros abastecidos</label>
+              <input id="edit_litros" name="litros" type="number" step="0.01" min="0.01" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="edit_preco_litro">Preço por litro (R$)</label>
+            <input id="edit_preco_litro" name="preco_litro" type="number" step="0.01" min="0.01" />
+          </div>
+          <div class="freight-preview"><span>Total do abastecimento</span><strong id="edit_fuel_total">R$ 0,00</strong></div>
+          <div class="manager-modal-actions">
+            <button type="button" class="cancel-button close-modal">Cancelar</button>
+            <button type="submit" class="primary">Salvar alterações</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const editModal = document.getElementById('edit-trip-modal');
+      const editForm = document.getElementById('edit-trip-form');
+      const statusField = document.getElementById('edit_status');
+      const completionFields = ['edit_data_final', 'edit_km_final', 'edit_litros', 'edit_preco_litro'];
+
+      function updateCompletionFields() {
+        const isCompleted = statusField.value === 'finalizada';
+        completionFields.forEach((id) => {
+          const field = document.getElementById(id);
+          field.required = isCompleted;
+        });
+      }
+
+      document.querySelectorAll('[data-edit-trip]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const data = button.dataset;
+          editForm.action = `/gestor/viagens/${data.tripId}/editar`;
+          document.getElementById('edit_rota').value = data.rotaId;
+          document.getElementById('edit_toneladas').value = data.toneladas;
+          document.getElementById('edit_veiculo').value = data.veiculo;
+          document.getElementById('edit_data_inicial').value = data.dataInicial;
+          document.getElementById('edit_km_inicial').value = data.kmInicial;
+          statusField.value = data.status;
+          document.getElementById('edit_data_final').value = data.dataFinal;
+          document.getElementById('edit_km_final').value = data.kmFinal;
+          document.getElementById('edit_litros').value = data.litros;
+          document.getElementById('edit_preco_litro').value = data.precoLitro;
+          updateCompletionFields();
+          updateEditFuelTotal();
+          editModal.classList.remove('hidden');
+          editModal.setAttribute('aria-hidden', 'false');
+        });
+      });
+
+      statusField.addEventListener('change', updateCompletionFields);
+      document.querySelectorAll('.close-modal').forEach((button) => {
+        button.addEventListener('click', () => {
+          editModal.classList.add('hidden');
+          editModal.setAttribute('aria-hidden', 'true');
+        });
+      });
+      editModal.addEventListener('click', (event) => {
+        if (event.target === editModal) {
+          editModal.classList.add('hidden');
+          editModal.setAttribute('aria-hidden', 'true');
+        }
+      });
+
+      const searchInput = document.getElementById('trip-search');
+      const statusFilter = document.getElementById('trip-status-filter');
+      const editRouteSelect = document.getElementById('edit_rota');
+      const editTonnage = document.getElementById('edit_toneladas');
+      const editFreightTotal = document.getElementById('edit_freight_total');
+      const editFuelLiters = document.getElementById('edit_litros');
+      const editFuelPrice = document.getElementById('edit_preco_litro');
+      const editFuelTotal = document.getElementById('edit_fuel_total');
+      const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+      function updateEditFreight() {
+        const rate = Number(editRouteSelect.selectedOptions[0]?.dataset.rate || 0);
+        const tonnage = Number(editTonnage.value || 0);
+        editFreightTotal.textContent = currency.format(rate * tonnage);
+      }
+
+      editRouteSelect.addEventListener('change', updateEditFreight);
+      editTonnage.addEventListener('input', updateEditFreight);
+
+      function updateEditFuelTotal() {
+        editFuelTotal.textContent = currency.format(Number(editFuelLiters.value || 0) * Number(editFuelPrice.value || 0));
+      }
+
+      editFuelLiters.addEventListener('input', updateEditFuelTotal);
+      editFuelPrice.addEventListener('input', updateEditFuelTotal);
+      const tripRows = [...document.querySelectorAll('[data-trip-row]')];
+      const noResults = document.getElementById('no-filter-results');
+
+      function filterTrips() {
+        const search = searchInput.value.trim().toLocaleLowerCase('pt-BR');
+        const status = statusFilter.value;
+        let visibleCount = 0;
+        tripRows.forEach((row) => {
+          const matchesText = row.dataset.search.toLocaleLowerCase('pt-BR').includes(search);
+          const matchesStatus = status === 'todas' || row.dataset.status === status;
+          row.classList.toggle('hidden', !matchesText || !matchesStatus);
+          if (matchesText && matchesStatus) visibleCount += 1;
+        });
+        noResults.classList.toggle('hidden', visibleCount > 0 || tripRows.length === 0);
+      }
+
+      searchInput.addEventListener('input', filterTrips);
+      statusFilter.addEventListener('change', filterTrips);
+    </script>
+  </body>
+</html>

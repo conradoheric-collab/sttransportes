@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Rotas</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page manager-page">
+    <section class="manager-mobile-message">
+      <div class="driver-badge">ST</div>
+      <p>ST TRANSPORTES · GESTOR</p>
+      <h1>A gestão fica disponível no desktop.</h1>
+      <a href="{{ url_for('motorista_viagens') }}">Abrir área do Motorista</a>
+    </section>
+    <div class="driver-shell">
+      <aside class="driver-sidebar manager-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+        <p class="manager-nav-label">GESTÃO</p>
+        <nav class="driver-nav">
+          <a href="{{ url_for('gestor') }}">Visão geral</a>
+          <a class="active" href="{{ url_for('gestor_rotas') }}">Rotas</a>
+          <a href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Peças <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Veículos <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
+        </nav>
+        <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+      </aside>
+
+      <main class="driver-main manager-main">
+        <header class="topbar manager-topbar">
+          <div>
+            <p>Painel administrativo</p>
+            <h1>Rotas e fretes</h1>
+          </div>
+          <button class="primary route-add-button" type="button" data-open-route-modal>+ Cadastrar rota</button>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <section class="manager-trips route-management">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">TABELA DE FRETES</p>
+              <h2>Destinos cadastrados</h2>
+            </div>
+            <span class="route-count">{{ routes|length }} {{ 'rota cadastrada' if routes|length == 1 else 'rotas cadastradas' }}</span>
+          </div>
+
+          <div class="manager-table-wrap">
+            <table class="manager-table route-table">
+              <thead>
+                <tr>
+                  <th>Destino / rota</th>
+                  <th>Frete por tonelada</th>
+                  <th>Viagens vinculadas</th>
+                  <th><span class="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for route in routes %}
+                  <tr>
+                    <td><strong>{{ route.destino }}</strong><small>Rota #{{ route.id }}</small></td>
+                    <td><strong>{{ format_brl(route.valor_por_tonelada) }}</strong><small>por tonelada</small></td>
+                    <td>{{ trips_by_route.get(route.id, 0) }}</td>
+                    <td>
+                      <div class="manager-actions">
+                        <button type="button" class="table-action edit-action" data-edit-route data-route-id="{{ route.id }}" data-destino="{{ route.destino }}" data-rate="{{ route.valor_por_tonelada }}">Editar</button>
+                        <form method="POST" action="{{ url_for('excluir_rota', route_id=route.id) }}" onsubmit="return confirm('Excluir esta rota?');">
+                          <button type="submit" class="table-action delete-action">Excluir</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="4">Nenhuma rota cadastrada. Adicione um destino e defina o frete por tonelada.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note" id="modulos-pendentes">A tarifa é usada para calcular o frete de novas viagens. Alterações não modificam valores já calculados.</p>
+        </section>
+      </main>
+    </div>
+
+    <div id="create-route-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card manager-modal-card route-modal-card" role="dialog" aria-modal="true" aria-labelledby="create-route-title">
+        <div class="modal-header">
+          <div>
+            <p class="manager-kicker">TABELA DE FRETES</p>
+            <h3 id="create-route-title">Cadastrar rota</h3>
+          </div>
+          <button type="button" class="close-route-modal close-modal" aria-label="Fechar">×</button>
+        </div>
+        <form method="POST" action="{{ url_for('nova_rota') }}" class="trip-form modal-form">
+          <div class="field">
+            <label for="new_route_destination">Destino / rota</label>
+            <input id="new_route_destination" name="destino" type="text" placeholder="Ex: Curitiba - São Paulo" required />
+          </div>
+          <div class="field">
+            <label for="new_route_rate">Frete por tonelada (R$)</label>
+            <input id="new_route_rate" name="valor_por_tonelada" type="number" step="0.01" min="0.01" placeholder="Ex: 125,50" required />
+          </div>
+          <div class="manager-modal-actions">
+            <button type="button" class="cancel-button close-route-modal close-modal">Cancelar</button>
+            <button type="submit" class="primary">Salvar rota</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="edit-route-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card manager-modal-card route-modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-route-title">
+        <div class="modal-header">
+          <div>
+            <p class="manager-kicker">TABELA DE FRETES</p>
+            <h3 id="edit-route-title">Editar rota</h3>
+          </div>
+          <button type="button" class="close-route-modal close-modal" aria-label="Fechar">×</button>
+        </div>
+        <form id="edit-route-form" method="POST" class="trip-form modal-form">
+          <div class="field">
+            <label for="edit_route_destination">Destino / rota</label>
+            <input id="edit_route_destination" name="destino" required />
+          </div>
+          <div class="field">
+            <label for="edit_route_rate">Frete por tonelada (R$)</label>
+            <input id="edit_route_rate" name="valor_por_tonelada" type="number" step="0.01" min="0.01" required />
+          </div>
+          <div class="manager-modal-actions">
+            <button type="button" class="cancel-button close-route-modal close-modal">Cancelar</button>
+            <button type="submit" class="primary">Salvar alterações</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const createRouteModal = document.getElementById('create-route-modal');
+      const editRouteModal = document.getElementById('edit-route-modal');
+      const editRouteForm = document.getElementById('edit-route-form');
+
+      document.querySelector('[data-open-route-modal]').addEventListener('click', () => {
+        createRouteModal.classList.remove('hidden');
+        createRouteModal.setAttribute('aria-hidden', 'false');
+      });
+
+      document.querySelectorAll('[data-edit-route]').forEach((button) => {
+        button.addEventListener('click', () => {
+          editRouteForm.action = `/gestor/rotas/${button.dataset.routeId}/editar`;
+          document.getElementById('edit_route_destination').value = button.dataset.destino;
+          document.getElementById('edit_route_rate').value = button.dataset.rate;
+          editRouteModal.classList.remove('hidden');
+          editRouteModal.setAttribute('aria-hidden', 'false');
+        });
+      });
+
+      document.querySelectorAll('.close-route-modal').forEach((button) => {
+        button.addEventListener('click', () => {
+          [createRouteModal, editRouteModal].forEach((modal) => {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          });
+        });
+      });
+
+      [createRouteModal, editRouteModal].forEach((modal) => {
+        modal.addEventListener('click', (event) => {
+          if (event.target === modal) {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

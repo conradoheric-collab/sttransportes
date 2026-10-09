@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <div class="login-panel">
+        <div class="brand-area">
+          <div class="brand-badge">ST</div>
+          <div>
+            <p class="eyebrow">Gestão de frota</p>
+            <h1>ST Transportes</h1>
+          </div>
+        </div>
+
+        <div class="welcome-copy">
+          <h2>Bem-vindo ao painel</h2>
+          <p>Controle de viagem, abastecimento e gastos com peças em um único lugar.</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="{{ url_for('do_login') }}" class="login-form">
+          <label for="email">E-mail</label>
+          <input id="email" name="email" type="email" placeholder="seuemail@sttransportes.com.br" required />
+
+          <label for="password">Senha</label>
+          <input id="password" name="password" type="password" placeholder="Digite sua senha" required />
+
+          <label for="perfil">Perfil de acesso</label>
+          <select id="perfil" name="perfil" required>
+            <option value="motorista">Motorista</option>
+            <option value="gestor">Gestor</option>
+          </select>
+
+          <div class="form-row">
+            <label class="remember-me">
+              <input type="checkbox" />
+              Lembrar-me
+            </label>
+            <a href="#">Esqueci minha senha</a>
+          </div>
+
+          <button type="submit">Acessar painel</button>
+        </form>
+      </div>
+
+      <div class="visual-panel">
+        <div class="visual-card">
+          <p class="label">Operação</p>
+          <h3>Frota em andamento</h3>
+          <div class="stats-grid">
+            <div>
+              <span>Veículos</span>
+              <strong>148</strong>
+            </div>
+            <div>
+              <span>Rotas ativas</span>
+              <strong>36</strong>
+            </div>
+            <div>
+              <span>Abastecimento</span>
+              <strong>R$ 14.8k</strong>
+            </div>
+            <div>
+              <span>Peças</span>
+              <strong>R$ 9.6k</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
