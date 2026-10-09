@@ -26,7 +26,7 @@ app.config.update(
     SESSION_COOKIE_SECURE=environ.get("SESSION_COOKIE_SECURE", "false").casefold() == "true",
 )
 csrf = CSRFProtect(app)
-database_url = environ.get("DATABASE_URL", "sqlite:///st-transportes.db")
+database_url = environ.get("DATABASE_URL", "sqlite:///st-transportes.db").strip()
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
 elif database_url.startswith("postgresql://"):
@@ -148,8 +148,8 @@ def find_route(route_id):
 
 
 def authenticate_supabase_user(email, password):
-    supabase_url = environ.get("SUPABASE_URL", "").rstrip("/")
-    anon_key = environ.get("SUPABASE_ANON_KEY", "")
+    supabase_url = environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    anon_key = environ.get("SUPABASE_ANON_KEY", "").strip()
     if not supabase_url or not anon_key:
         raise RuntimeError("A autenticação Supabase ainda não foi configurada.")
 
@@ -210,8 +210,11 @@ def login():
     return render_template("login.html")
 
 
-@app.route("/login", methods=["POST"])
+@app.route("/login", methods=["GET", "POST"])
 def do_login():
+    if request.method == "GET":
+        return redirect(url_for("login"))
+
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "").strip()
 
