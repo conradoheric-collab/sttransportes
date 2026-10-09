@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Veículos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page manager-page">
+    <section class="manager-mobile-message">
+      <div class="driver-badge">ST</div>
+      <p>ST TRANSPORTES · GESTOR</p>
+      <h1>A gestão fica disponível no desktop.</h1>
+      <a href="{{ url_for('motorista_viagens') }}">Abrir área do Motorista</a>
+    </section>
+    <div class="driver-shell">
+      <aside class="driver-sidebar manager-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+        <p class="manager-nav-label">GESTÃO</p>
+        <nav class="driver-nav">
+          <a href="{{ url_for('gestor') }}">Visão geral</a>
+          <a href="{{ url_for('gestor_rotas') }}">Rotas</a>
+          <a href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Peças <span>Em breve</span></a>
+          <a class="active" href="{{ url_for('gestor_veiculos') }}">Veículos</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
+        </nav>
+        <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+        <form method="POST" action="{{ url_for('logout') }}" class="manager-logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="manager-logout-button">Sair</button>
+        </form>
+      </aside>
+
+      <main class="driver-main manager-main">
+        <header class="topbar manager-topbar">
+          <div>
+            <p>Painel administrativo</p>
+            <h1>Veículos</h1>
+          </div>
+          <button class="primary route-add-button" type="button" data-open-vehicle-modal>+ Cadastrar veículo</button>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <section class="manager-trips route-management">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">FROTA</p>
+              <h2>Veículos cadastrados</h2>
+            </div>
+            <span class="route-count">{{ vehicles|length }} {{ 'veículo cadastrado' if vehicles|length == 1 else 'veículos cadastrados' }}</span>
+          </div>
+
+          <div class="manager-table-wrap">
+            <table class="manager-table route-table">
+              <thead>
+                <tr>
+                  <th>Placa</th>
+                  <th>Viagens registradas</th>
+                  <th><span class="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for vehicle in vehicles %}
+                  <tr>
+                    <td><strong>{{ vehicle.placa }}</strong><small>Veículo #{{ vehicle.id }}</small></td>
+                    <td>{{ trips_by_vehicle.get(vehicle.id, 0) }}</td>
+                    <td>
+                      <div class="manager-actions">
+                        <button type="button" class="table-action edit-action" data-edit-vehicle data-vehicle-id="{{ vehicle.id }}" data-placa="{{ vehicle.placa }}">Editar</button>
+                        <form method="POST" action="{{ url_for('excluir_veiculo', vehicle_id=vehicle.id) }}" onsubmit="return confirm('Excluir este veículo?');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                          <button type="submit" class="table-action delete-action">Excluir</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="3">Nenhum veículo cadastrado. Adicione a placa para o motorista poder selecioná-lo na viagem.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note" id="modulos-pendentes">O motorista escolhe o veículo ao abrir uma viagem. Alterar ou excluir um veículo não modifica viagens já registradas.</p>
+        </section>
+      </main>
+    </div>
+
+    <div id="create-vehicle-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card manager-modal-card route-modal-card" role="dialog" aria-modal="true" aria-labelledby="create-vehicle-title">
+        <div class="modal-header">
+          <div>
+            <p class="manager-kicker">FROTA</p>
+            <h3 id="create-vehicle-title">Cadastrar veículo</h3>
+          </div>
+          <button type="button" class="close-vehicle-modal close-modal" aria-label="Fechar">×</button>
+        </div>
+        <form method="POST" action="{{ url_for('novo_veiculo') }}" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <div class="field">
+            <label for="new_vehicle_plate">Placa</label>
+            <input id="new_vehicle_plate" name="placa" type="text" maxlength="8" placeholder="Ex: ABC1D23" autocomplete="off" style="text-transform: uppercase" required />
+          </div>
+          <div class="manager-modal-actions">
+            <button type="button" class="cancel-button close-vehicle-modal close-modal">Cancelar</button>
+            <button type="submit" class="primary">Salvar veículo</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="edit-vehicle-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card manager-modal-card route-modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-vehicle-title">
+        <div class="modal-header">
+          <div>
+            <p class="manager-kicker">FROTA</p>
+            <h3 id="edit-vehicle-title">Editar veículo</h3>
+          </div>
+          <button type="button" class="close-vehicle-modal close-modal" aria-label="Fechar">×</button>
+        </div>
+        <form id="edit-vehicle-form" method="POST" class="trip-form modal-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <div class="field">
+            <label for="edit_vehicle_plate">Placa</label>
+            <input id="edit_vehicle_plate" name="placa" type="text" maxlength="8" autocomplete="off" style="text-transform: uppercase" required />
+          </div>
+          <div class="manager-modal-actions">
+            <button type="button" class="cancel-button close-vehicle-modal close-modal">Cancelar</button>
+            <button type="submit" class="primary">Salvar alterações</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const createVehicleModal = document.getElementById('create-vehicle-modal');
+      const editVehicleModal = document.getElementById('edit-vehicle-modal');
+      const editVehicleForm = document.getElementById('edit-vehicle-form');
+
+      document.querySelector('[data-open-vehicle-modal]').addEventListener('click', () => {
+        createVehicleModal.classList.remove('hidden');
+        createVehicleModal.setAttribute('aria-hidden', 'false');
+      });
+
+      document.querySelectorAll('[data-edit-vehicle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          editVehicleForm.action = `/gestor/veiculos/${button.dataset.vehicleId}/editar`;
+          document.getElementById('edit_vehicle_plate').value = button.dataset.placa;
+          editVehicleModal.classList.remove('hidden');
+          editVehicleModal.setAttribute('aria-hidden', 'false');
+        });
+      });
+
+      document.querySelectorAll('.close-vehicle-modal').forEach((button) => {
+        button.addEventListener('click', () => {
+          [createVehicleModal, editVehicleModal].forEach((modal) => {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          });
+        });
+      });
+
+      [createVehicleModal, editVehicleModal].forEach((modal) => {
+        modal.addEventListener('click', (event) => {
+          if (event.target === modal) {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -38,7 +38,7 @@ DO $$
 DECLARE
     table_name text;
 BEGIN
-    FOREACH table_name IN ARRAY ARRAY['routes', 'trips', 'user_profiles'] LOOP
+    FOREACH table_name IN ARRAY ARRAY['routes', 'trips', 'user_profiles', 'vehicles'] LOOP
         IF to_regclass(format('public.%I', table_name)) IS NOT NULL THEN
             EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', table_name);
             EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon, authenticated', table_name);

@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from json import JSONDecodeError, dumps, load
 from os import environ
+from re import fullmatch
 from pathlib import Path
 from secrets import token_hex
 from urllib.error import HTTPError, URLError
@@ -60,6 +61,19 @@ class RouteRecord(db.Model):
             "id": self.id,
             "destino": self.destino,
             "valor_por_tonelada": self.valor_por_tonelada,
+        }
+
+
+class VehicleRecord(db.Model):
+    __tablename__ = "vehicles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    placa = db.Column(db.String(7), nullable=False, unique=True)
+
+    def as_dict(self):
+        return {
+            "id": self.id,
+            "placa": self.placa,
         }
 
 
@@ -145,6 +159,15 @@ def find_trip(trip_id):
 
 def find_route(route_id):
     return db.session.get(RouteRecord, route_id)
+
+
+def find_vehicle(vehicle_id):
+    return db.session.get(VehicleRecord, vehicle_id)
+
+
+def normalize_placa(value):
+    placa = "".join(value.split()).replace("-", "").upper()
+    return placa if fullmatch(r"[A-Z]{3}[0-9][A-Z0-9][0-9]{2}", placa) else None
 
 
 def authenticate_supabase_user(email, password):
@@ -273,6 +296,7 @@ def motorista_viagens():
             for trip in TripRecord.query.filter_by(motorista_user_id=user_id).order_by(TripRecord.id).all()
         ],
         routes=[route.as_dict() for route in RouteRecord.query.order_by(RouteRecord.id).all()],
+        vehicles=[vehicle.as_dict() for vehicle in VehicleRecord.query.order_by(VehicleRecord.placa).all()],
         active_trip=get_active_trip(user_id),
         now_value=now_datetime_local(),
         format_datetime=format_datetime,
@@ -285,13 +309,18 @@ def motorista_viagens():
 @require_role("motorista")
 def nova_viagem():
     route_id = request.form.get("rota_id", "").strip()
+    vehicle_id = request.form.get("veiculo_id", "").strip()
     toneladas_value = request.form.get("toneladas", "").strip()
     km_inicial = request.form.get("km_inicial", "").strip()
     data_inicial = request.form.get("data_inicial") or now_datetime_local()
     route = find_route(int(route_id)) if route_id.isdigit() else None
+    vehicle = find_vehicle(int(vehicle_id)) if vehicle_id.isdigit() else None
 
     if route is None:
         flash("Selecione uma rota cadastrada pelo Gestor.", "error")
+        return redirect(url_for("motorista_viagens"))
+    if vehicle is None:
+        flash("Selecione um veículo cadastrado pelo Gestor.", "error")
         return redirect(url_for("motorista_viagens"))
     if not toneladas_value or not km_inicial:
         flash("Informe a tonelagem e o KM inicial para abrir a viagem.", "error")
@@ -321,7 +350,7 @@ def nova_viagem():
         km_inicial=km_inicial_value,
         data_inicio=data_inicio,
         status="em_andamento",
-        veiculo="Veículo 12",
+        veiculo=vehicle.placa,
     )
     db.session.add(trip)
     db.session.commit()
@@ -639,12 +668,80 @@ def excluir_rota(route_id):
     return redirect(url_for("gestor_rotas"))
 
 
+@app.route("/gestor/veiculos")
+@require_role("gestor")
+def gestor_veiculos():
+    vehicle_records = VehicleRecord.query.order_by(VehicleRecord.placa).all()
+    return render_template(
+        "gestor_veiculos.html",
+        vehicles=[vehicle.as_dict() for vehicle in vehicle_records],
+        trips_by_vehicle={
+            vehicle.id: TripRecord.query.filter_by(veiculo=vehicle.placa).count()
+            for vehicle in vehicle_records
+        },
+    )
+
+
+@app.route("/gestor/veiculos/novo", methods=["POST"])
+@require_role("gestor")
+def novo_veiculo():
+    placa = normalize_placa(request.form.get("placa", ""))
+    if placa is None:
+        flash("Informe uma placa válida. Ex: ABC1D23 ou ABC1234.", "error")
+        return redirect(url_for("gestor_veiculos"))
+    if VehicleRecord.query.filter_by(placa=placa).first() is not None:
+        flash("Já existe um veículo cadastrado com essa placa.", "error")
+        return redirect(url_for("gestor_veiculos"))
+
+    db.session.add(VehicleRecord(placa=placa))
+    db.session.commit()
+    flash("Veículo cadastrado com sucesso.", "success")
+    return redirect(url_for("gestor_veiculos"))
+
+
+@app.route("/gestor/veiculos/<int:vehicle_id>/editar", methods=["POST"])
+@require_role("gestor")
+def editar_veiculo(vehicle_id):
+    vehicle = find_vehicle(vehicle_id)
+    if vehicle is None:
+        flash("Veículo não encontrado.", "error")
+        return redirect(url_for("gestor_veiculos"))
+
+    placa = normalize_placa(request.form.get("placa", ""))
+    if placa is None:
+        flash("Informe uma placa válida. Ex: ABC1D23 ou ABC1234.", "error")
+        return redirect(url_for("gestor_veiculos"))
+    other = VehicleRecord.query.filter_by(placa=placa).first()
+    if other is not None and other.id != vehicle_id:
+        flash("Já existe outro veículo cadastrado com essa placa.", "error")
+        return redirect(url_for("gestor_veiculos"))
+
+    vehicle.placa = placa
+    db.session.commit()
+    flash("Veículo atualizado com sucesso. Viagens já registradas mantêm a placa original.", "success")
+    return redirect(url_for("gestor_veiculos"))
+
+
+@app.route("/gestor/veiculos/<int:vehicle_id>/excluir", methods=["POST"])
+@require_role("gestor")
+def excluir_veiculo(vehicle_id):
+    vehicle = find_vehicle(vehicle_id)
+    if vehicle is None:
+        flash("Veículo não encontrado.", "error")
+        return redirect(url_for("gestor_veiculos"))
+
+    db.session.delete(vehicle)
+    db.session.commit()
+    flash("Veículo excluído. As viagens já registradas mantêm a placa.", "success")
+    return redirect(url_for("gestor_veiculos"))
+
+
 Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 with app.app_context():
     db.create_all()
     with db.engine.begin() as connection:
         if db.engine.dialect.name == "postgresql":
-            for table_name in ("routes", "trips", "user_profiles"):
+            for table_name in ("routes", "trips", "user_profiles", "vehicles"):
                 connection.exec_driver_sql(
                     f"ALTER TABLE public.{table_name} ENABLE ROW LEVEL SECURITY"
                 )

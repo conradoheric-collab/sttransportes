@@ -32,7 +32,7 @@
             <p>Motorista</p>
             <h1>Viagens</h1>
           </div>
-          <button class="add-button" type="button" data-open-create="true" {% if not routes %}disabled title="Aguarde o Gestor cadastrar uma rota"{% endif %}>+</button>
+          <button class="add-button" type="button" data-open-create="true" {% if not routes or not vehicles %}disabled title="Aguarde o Gestor cadastrar rotas e veículos"{% endif %}>+</button>
         </header>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -45,6 +45,9 @@
 
         {% if not routes %}
           <div class="route-needed">Nenhuma rota disponível. Peça ao Gestor para cadastrar as rotas antes de abrir uma viagem.</div>
+        {% endif %}
+        {% if not vehicles %}
+          <div class="route-needed">Nenhum veículo disponível. Peça ao Gestor para cadastrar os veículos antes de abrir uma viagem.</div>
         {% endif %}
 
         <section class="panel">
@@ -105,6 +108,16 @@
             </div>
           </div>
 
+          <div class="field">
+            <label for="modal_veiculo">Veículo</label>
+            <select id="modal_veiculo" name="veiculo_id" required {% if not vehicles %}disabled{% endif %}>
+              <option value="">Selecione a placa</option>
+              {% for vehicle in vehicles %}
+                <option value="{{ vehicle.id }}">{{ vehicle.placa }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
           <div class="form-grid">
             <div class="field">
               <label for="modal_toneladas">Toneladas</label>
@@ -117,7 +130,7 @@
           </div>
 
           <div class="freight-preview"><span>Frete estimado</span><strong id="freight-total">R$ 0,00</strong></div>
-          <button type="submit" class="primary" {% if not routes %}disabled{% endif %}>Abrir viagem</button>
+          <button type="submit" class="primary" {% if not routes or not vehicles %}disabled{% endif %}>Abrir viagem</button>
         </form>
       </div>
     </div>
