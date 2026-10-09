@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ST Transportes | Custos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="driver-page manager-page">
+    <section class="manager-mobile-message">
+      <div class="driver-badge">ST</div>
+      <p>ST TRANSPORTES · GESTOR</p>
+      <h1>A gestão fica disponível no desktop.</h1>
+      <a href="{{ url_for('motorista_viagens') }}">Abrir área do Motorista</a>
+    </section>
+    <div class="driver-shell">
+      <aside class="driver-sidebar manager-sidebar">
+        <div class="driver-brand">
+          <div class="driver-badge">ST</div>
+          <h2>ST Transportes</h2>
+        </div>
+        <p class="manager-nav-label">GESTÃO</p>
+        <nav class="driver-nav">
+          <a href="{{ url_for('gestor') }}">Visão geral</a>
+          <a href="{{ url_for('gestor_rotas') }}">Rotas</a>
+          <a href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
+          <a class="active" href="{{ url_for('gestor_custos') }}">Custos</a>
+          <a href="{{ url_for('gestor_veiculos') }}">Veículos</a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
+          <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
+        </nav>
+        <a class="manager-driver-link" href="{{ url_for('motorista_viagens') }}">Área do motorista</a>
+        <form method="POST" action="{{ url_for('logout') }}" class="manager-logout-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" class="manager-logout-button">Sair</button>
+        </form>
+      </aside>
+
+      <main class="driver-main manager-main">
+        <header class="topbar manager-topbar">
+          <div>
+            <p>Painel administrativo</p>
+            <h1>Custos</h1>
+          </div>
+          <button class="primary route-add-button" type="button" data-open-expense-modal>+ Lançar custo</button>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <section class="manager-trips route-management">
+          <div class="manager-section-heading">
+            <div>
+              <p class="manager-kicker">DESPESAS DA FROTA</p>
+              <h2>Custos lançados</h2>
+            </div>
+            <span class="route-count">Total: {{ format_brl(total) }}</span>
+          </div>
+
+          <div class="manager-table-wrap">
+            <table class="manager-table route-table">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Categoria</th>
+                  <th>Descrição</th>
+                  <th>Veículo</th>
+                  <th>Valor</th>
+                  <th><span class="sr-only">Ações</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for expense in expenses %}
+                  <tr>
+                    <td>{{ expense.data.strftime('%d/%m/%Y') }}</td>
+                    <td><strong>{{ expense.categoria_nome }}</strong></td>
+                    <td>{{ expense.descricao }}</td>
+                    <td>{{ expense.veiculo or '—' }}</td>
+                    <td><strong>{{ format_brl(expense.valor) }}</strong></td>
+                    <td>
+                      <div class="manager-actions">
+                        <button type="button" class="table-action edit-action" data-edit-expense
+                          data-expense-id="{{ expense.id }}"
+                          data-data="{{ expense.data.isoformat() }}"
+                          data-categoria="{{ expense.categoria }}"
+                          data-veiculo="{{ expense.veiculo or '' }}"
+                          data-descricao="{{ expense.descricao }}"
+                          data-valor="{{ expense.valor }}">Editar</button>
+                        <form method="POST" action="{{ url_for('excluir_custo', expense_id=expense.id) }}" onsubmit="return confirm('Excluir este custo?');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+                          <button type="submit" class="table-action delete-action">Excluir</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr class="empty-row"><td colspan="6">Nenhum custo lançado. Registre peças, manutenção, pneus, pedágios e outras despesas.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="manager-footer-note" id="modulos-pendentes">O diesel é registrado pelo motorista ao finalizar cada viagem e entra automaticamente no custo geral da Visão geral.</p>
+        </section>
+      </main>
+    </div>
+
+    {% for modal_id, title, action, submit_label in [
+      ('create-expense-modal', 'Lançar custo', url_for('novo_custo'), 'Salvar custo'),
+      ('edit-expense-modal', 'Editar custo', '', 'Salvar alterações'),
+    ] %}
+      {% set prefix = 'new' if modal_id == 'create-expense-modal' else 'edit' %}
+      <div id="{{ modal_id }}" class="modal hidden" aria-hidden="true">
+        <div class="modal-card manager-modal-card route-modal-card" role="dialog" aria-modal="true" aria-labelledby="{{ modal_id }}-title">
+          <div class="modal-header">
+            <div>
+              <p class="manager-kicker">DESPESAS DA FROTA</p>
+              <h3 id="{{ modal_id }}-title">{{ title }}</h3>
+            </div>
+            <button type="button" class="close-expense-modal close-modal" aria-label="Fechar">×</button>
+          </div>
+          <form id="{{ prefix }}-expense-form" method="POST" {% if action %}action="{{ action }}"{% endif %} class="trip-form modal-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+            <div class="form-grid">
+              <div class="field">
+                <label for="{{ prefix }}_expense_date">Data</label>
+                <input id="{{ prefix }}_expense_date" name="data" type="date" value="{{ today }}" required />
+              </div>
+              <div class="field">
+                <label for="{{ prefix }}_expense_category">Categoria</label>
+                <select id="{{ prefix }}_expense_category" name="categoria" required>
+                  {% for key, label in categories.items() %}
+                    <option value="{{ key }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="{{ prefix }}_expense_description">Descrição</label>
+              <input id="{{ prefix }}_expense_description" name="descricao" type="text" maxlength="255" placeholder="Ex: Troca de pastilha de freio" required />
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="{{ prefix }}_expense_vehicle">Veículo (opcional)</label>
+                <select id="{{ prefix }}_expense_vehicle" name="veiculo">
+                  <option value="">Geral / sem veículo</option>
+                  {% for vehicle in vehicles %}
+                    <option value="{{ vehicle.placa }}">{{ vehicle.placa }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="field">
+                <label for="{{ prefix }}_expense_value">Valor (R$)</label>
+                <input id="{{ prefix }}_expense_value" name="valor" type="number" step="0.01" min="0.01" placeholder="Ex: 350,00" required />
+              </div>
+            </div>
+            <div class="manager-modal-actions">
+              <button type="button" class="cancel-button close-expense-modal close-modal">Cancelar</button>
+              <button type="submit" class="primary">{{ submit_label }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endfor %}
+
+    <script>
+      const createExpenseModal = document.getElementById('create-expense-modal');
+      const editExpenseModal = document.getElementById('edit-expense-modal');
+      const editExpenseForm = document.getElementById('edit-expense-form');
+
+      document.querySelector('[data-open-expense-modal]').addEventListener('click', () => {
+        createExpenseModal.classList.remove('hidden');
+        createExpenseModal.setAttribute('aria-hidden', 'false');
+      });
+
+      document.querySelectorAll('[data-edit-expense]').forEach((button) => {
+        button.addEventListener('click', () => {
+          editExpenseForm.action = `/gestor/custos/${button.dataset.expenseId}/editar`;
+          document.getElementById('edit_expense_date').value = button.dataset.data;
+          document.getElementById('edit_expense_category').value = button.dataset.categoria;
+          document.getElementById('edit_expense_vehicle').value = button.dataset.veiculo;
+          document.getElementById('edit_expense_description').value = button.dataset.descricao;
+          document.getElementById('edit_expense_value').value = button.dataset.valor;
+          editExpenseModal.classList.remove('hidden');
+          editExpenseModal.setAttribute('aria-hidden', 'false');
+        });
+      });
+
+      document.querySelectorAll('.close-expense-modal').forEach((button) => {
+        button.addEventListener('click', () => {
+          [createExpenseModal, editExpenseModal].forEach((modal) => {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          });
+        });
+      });
+
+      [createExpenseModal, editExpenseModal].forEach((modal) => {
+        modal.addEventListener('click', (event) => {
+          if (event.target === modal) {
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

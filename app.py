@@ -77,6 +77,37 @@ class VehicleRecord(db.Model):
         }
 
 
+EXPENSE_CATEGORIES = {
+    "pecas": "Peças",
+    "manutencao": "Manutenção",
+    "pneus": "Pneus",
+    "pedagio": "Pedágio",
+    "outros": "Outros",
+}
+
+
+class ExpenseRecord(db.Model):
+    __tablename__ = "expenses"
+
+    id = db.Column(db.Integer, primary_key=True)
+    data = db.Column(db.Date, nullable=False)
+    categoria = db.Column(db.String(20), nullable=False)
+    veiculo = db.Column(db.String(7))
+    descricao = db.Column(db.String(255), nullable=False)
+    valor = db.Column(db.Numeric(12, 2), nullable=False)
+
+    def as_dict(self):
+        return {
+            "id": self.id,
+            "data": self.data,
+            "categoria": self.categoria,
+            "categoria_nome": EXPENSE_CATEGORIES.get(self.categoria, self.categoria),
+            "veiculo": self.veiculo,
+            "descricao": self.descricao,
+            "valor": self.valor,
+        }
+
+
 class TripRecord(db.Model):
     __tablename__ = "trips"
 
@@ -163,6 +194,42 @@ def find_route(route_id):
 
 def find_vehicle(vehicle_id):
     return db.session.get(VehicleRecord, vehicle_id)
+
+
+def find_expense(expense_id):
+    return db.session.get(ExpenseRecord, expense_id)
+
+
+def total_expenses():
+    return db.session.query(db.func.coalesce(db.func.sum(ExpenseRecord.valor), 0)).scalar()
+
+
+def parse_expense_form():
+    data_value = request.form.get("data", "").strip()
+    categoria = request.form.get("categoria", "").strip()
+    veiculo = request.form.get("veiculo", "").strip() or None
+    descricao = request.form.get("descricao", "").strip()
+    valor_value = request.form.get("valor", "").strip()
+
+    if not data_value or categoria not in EXPENSE_CATEGORIES or not descricao or not valor_value:
+        return None, "Informe data, categoria, descrição e valor do custo."
+    try:
+        data = datetime.strptime(data_value, "%Y-%m-%d").date()
+        valor = Decimal(valor_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return None, "Confira a data e o valor informados."
+    if not valor.is_finite() or valor <= 0:
+        return None, "O valor do custo deve ser maior que zero."
+    if veiculo is not None and VehicleRecord.query.filter_by(placa=veiculo).first() is None:
+        return None, "Selecione um veículo cadastrado."
+
+    return {
+        "data": data,
+        "categoria": categoria,
+        "veiculo": veiculo,
+        "descricao": descricao[:255],
+        "valor": valor,
+    }, None
 
 
 def normalize_placa(value):
@@ -426,8 +493,8 @@ def gestor():
         total_trips=len(trips),
         active_trips=sum(trip["status"] == "em_andamento" for trip in trips),
         completed_trips=len(completed_trips),
-        total_fuel=sum(trip["valor_abastecimento"] or 0 for trip in trips),
-        total_liters=sum(trip["litros"] or 0 for trip in trips),
+        total_cost=sum((trip["valor_abastecimento"] or Decimal("0.00") for trip in trips), Decimal("0.00"))
+        + total_expenses(),
         total_freight=sum((trip.get("valor_frete") or Decimal("0.00") for trip in trips), Decimal("0.00")),
         format_datetime=format_datetime,
         format_brl=format_brl,
@@ -736,12 +803,75 @@ def excluir_veiculo(vehicle_id):
     return redirect(url_for("gestor_veiculos"))
 
 
+@app.route("/gestor/custos")
+@require_role("gestor")
+def gestor_custos():
+    expense_records = ExpenseRecord.query.order_by(ExpenseRecord.data.desc(), ExpenseRecord.id.desc()).all()
+    return render_template(
+        "gestor_custos.html",
+        expenses=[expense.as_dict() for expense in expense_records],
+        total=sum((expense.valor for expense in expense_records), Decimal("0.00")),
+        categories=EXPENSE_CATEGORIES,
+        vehicles=[vehicle.as_dict() for vehicle in VehicleRecord.query.order_by(VehicleRecord.placa).all()],
+        today=datetime.now().strftime("%Y-%m-%d"),
+        format_brl=format_brl,
+    )
+
+
+@app.route("/gestor/custos/novo", methods=["POST"])
+@require_role("gestor")
+def novo_custo():
+    fields, error = parse_expense_form()
+    if error:
+        flash(error, "error")
+        return redirect(url_for("gestor_custos"))
+
+    db.session.add(ExpenseRecord(**fields))
+    db.session.commit()
+    flash("Custo lançado com sucesso.", "success")
+    return redirect(url_for("gestor_custos"))
+
+
+@app.route("/gestor/custos/<int:expense_id>/editar", methods=["POST"])
+@require_role("gestor")
+def editar_custo(expense_id):
+    expense = find_expense(expense_id)
+    if expense is None:
+        flash("Custo não encontrado.", "error")
+        return redirect(url_for("gestor_custos"))
+
+    fields, error = parse_expense_form()
+    if error:
+        flash(error, "error")
+        return redirect(url_for("gestor_custos"))
+
+    for name, value in fields.items():
+        setattr(expense, name, value)
+    db.session.commit()
+    flash("Custo atualizado com sucesso.", "success")
+    return redirect(url_for("gestor_custos"))
+
+
+@app.route("/gestor/custos/<int:expense_id>/excluir", methods=["POST"])
+@require_role("gestor")
+def excluir_custo(expense_id):
+    expense = find_expense(expense_id)
+    if expense is None:
+        flash("Custo não encontrado.", "error")
+        return redirect(url_for("gestor_custos"))
+
+    db.session.delete(expense)
+    db.session.commit()
+    flash("Custo excluído com sucesso.", "success")
+    return redirect(url_for("gestor_custos"))
+
+
 Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 with app.app_context():
     db.create_all()
     with db.engine.begin() as connection:
         if db.engine.dialect.name == "postgresql":
-            for table_name in ("routes", "trips", "user_profiles", "vehicles"):
+            for table_name in ("routes", "trips", "user_profiles", "vehicles", "expenses"):
                 connection.exec_driver_sql(
                     f"ALTER TABLE public.{table_name} ENABLE ROW LEVEL SECURITY"
                 )

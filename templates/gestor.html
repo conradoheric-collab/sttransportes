@@ -28,7 +28,7 @@
           <a class="active" href="{{ url_for('gestor') }}">Visão geral</a>
           <a href="{{ url_for('gestor_rotas') }}">Rotas</a>
           <a href="{{ url_for('gestor_abastecimento') }}">Abastecimento</a>
-          <a class="nav-upcoming" href="#modulos-pendentes">Peças <span>Em breve</span></a>
+          <a href="{{ url_for('gestor_custos') }}">Custos</a>
           <a href="{{ url_for('gestor_veiculos') }}">Veículos</a>
           <a class="nav-upcoming" href="#modulos-pendentes">Motoristas <span>Em breve</span></a>
           <a class="nav-upcoming" href="#modulos-pendentes">Relatórios <span>Em breve</span></a>
@@ -74,9 +74,9 @@
             <small>Com registro de encerramento</small>
           </article>
           <article class="manager-metric metric-fuel">
-            <span>Abastecimento registrado</span>
-            <strong>{{ format_brl(total_fuel) }}</strong>
-            <small>{{ '%.2f'|format(total_liters) }} litros</small>
+            <span>Custo geral</span>
+            <strong>{{ format_brl(total_cost) }}</strong>
+            <small>Diesel, peças e demais custos</small>
           </article>
           <article class="manager-metric metric-freight">
             <span>Frete calculado</span>
@@ -181,7 +181,7 @@
               </tbody>
             </table>
           </div>
-          <p class="manager-footer-note" id="modulos-pendentes">As áreas de peças, veículos, motoristas e relatórios serão detalhadas nas próximas etapas.</p>
+          <p class="manager-footer-note" id="modulos-pendentes">As áreas de motoristas e relatórios serão detalhadas nas próximas etapas.</p>
         </section>
       </main>
     </div>
